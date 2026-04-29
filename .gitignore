@@ -1,0 +1,20 @@
+# Swift / Xcode
+.DS_Store
+.build/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+*.swp
+*.orig
+
+# SPM
+Packages/
+Package.resolved
+
+# Build artifacts
+*.app
+*.dmg
+*.pkg
+
+# Other
+log
