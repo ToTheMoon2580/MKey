@@ -6,41 +6,112 @@ struct ScrollTab: View {
     @State private var isTrusted = AXIsProcessTrusted()
     @State private var frontAppName: String = ""
     @State private var frontAppBundleID: String = ""
-
-    /// 权限轮询定时器
     @State private var trustPollTimer: Timer?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 // 权限警告
-                if !isTrusted {
-                    permissionWarning
-                        .padding(.horizontal, 12)
-                        .padding(.top, 8)
+                if !isTrusted { permissionWarning }
+
+                // 区域一：全局控制
+                SectionHeader(icon: "arrow.up.arrow.down",
+                              title: "滚动方向",
+                              subtitle: "分别控制触控板和鼠标的滚动方向")
+                    .padding(.top, isTrusted ? 16 : 8)
+
+                ToggleRow(label: "启用独立控制",
+                          description: "开启后触控板与鼠标各管各的",
+                          isOn: $settings.scrollReverseEnabled)
+                    .disabled(!isTrusted)
+
+                thinDivider
+
+                ToggleRow(label: "开机自动启动",
+                          description: "登录时自动在后台运行",
+                          isOn: $settings.launchAtLogin)
+
+                thickDivider
+
+                // 区域二：当前效果
+                SectionHeader(icon: "eye",
+                              title: "当前效果",
+                              subtitle: "开启后触控板保持原生，鼠标滚轮反转")
+
+                StatusRow(icon: "hand.point.up.fill",
+                          label: "触控板",
+                          value: settings.scrollReverseEnabled ? "自然滚动（原生）" : "跟随系统",
+                          active: settings.scrollReverseEnabled)
+
+                thinDivider
+
+                StatusRow(icon: "computermouse.fill",
+                          label: "鼠标滚轮",
+                          value: settings.scrollReverseEnabled ? "方向反转 ↑→↓" : "跟随系统",
+                          active: settings.scrollReverseEnabled,
+                          accentColor: .orange)
+
+                thickDivider
+
+                // 区域三：应用单独设置
+                SectionHeader(icon: "apps.iphone",
+                              title: "应用单独设置",
+                              subtitle: "为特定 App 单独设定滚动方向")
+
+                // 当前前台应用 + 添加按钮
+                if !frontAppName.isEmpty {
+                    HStack {
+                        HStack(spacing: 6) {
+                            Image(systemName: "app.fill")
+                                .foregroundColor(.accentColor)
+                            Text(frontAppName)
+                                .fontWeight(.medium)
+                            Text("· 当前前台")
+                                .foregroundColor(.secondary)
+                        }
+                        .font(.callout)
+
+                        Spacer()
+
+                        if alreadyHasRule(for: frontAppBundleID) {
+                            Label("已添加", systemImage: "checkmark.circle.fill")
+                                .font(.callout)
+                                .foregroundColor(.green)
+                        } else {
+                            Button(action: addCurrentApp) {
+                                Label("添加规则", systemImage: "plus")
+                                    .font(.callout)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
                 }
 
-                // 全局开关
-                globalSection
-                    .padding(.horizontal, 12)
-                    .padding(.top, 12)
+                // 规则列表或空状态
+                if settings.perAppScrollRules.isEmpty {
+                    emptyRulesView
+                } else {
+                    VStack(spacing: 0) {
+                        thinDivider
+                        ForEach(Array(settings.perAppScrollRules.enumerated()), id: \.element.id) { index, rule in
+                            AppRuleRow(
+                                rule: rule,
+                                onToggle: { settings.perAppScrollRules[index].enabled = $0 },
+                                onBehaviorChange: { settings.perAppScrollRules[index].scrollBehavior = $0 },
+                                onDelete: { settings.perAppScrollRules.remove(at: index) }
+                            )
+                            if index < settings.perAppScrollRules.count - 1 {
+                                thinDivider
+                            }
+                        }
+                    }
+                }
 
-                Divider().padding(.horizontal, 12)
-
-                // 行为说明
-                behaviorSection
-                    .padding(.horizontal, 12)
-
-                // 冲突提示
-                conflictNote
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-
-                Divider().padding(.horizontal, 12)
-
-                // 应用规则
-                appFilterSection
-                    .padding(.horizontal, 12)
+                // 底部留白
+                Color.clear.frame(height: 24)
             }
         }
         .onAppear {
@@ -48,154 +119,71 @@ struct ScrollTab: View {
             refreshFrontApp()
             startTrustPollingIfNeeded()
         }
-        .onDisappear {
-            stopTrustPolling()
-        }
+        .onDisappear { stopTrustPolling() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshTrustStatus()
             refreshFrontApp()
         }
     }
 
-    // MARK: - 全局开关
-
-    private var globalSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("触控板 / 鼠标滚动方向独立控制")
-                .font(.headline)
-            Text("触控板保持自然滚动，鼠标滚轮方向反转")
-                .font(.body)
-                .foregroundColor(.secondary)
-                .padding(.bottom, 4)
-
-            HStack {
-                Text("启用滚动方向独立控制")
-                    .font(.body)
-                Spacer()
-                Toggle("", isOn: $settings.scrollReverseEnabled)
-                    .toggleStyle(.switch)
-                    .disabled(!isTrusted)
-            }
-
-            HStack {
-                Text("开机自动启动")
-                    .font(.body)
-                Spacer()
-                Toggle("", isOn: $settings.launchAtLogin)
-                    .toggleStyle(.switch)
-            }
-        }
-    }
-
-    // MARK: - 行为说明
-
-    private var behaviorSection: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    Image(systemName: "trackpad")
-                    Text("触控板：保持自然滚动")
-                }
-                HStack(spacing: 8) {
-                    Image(systemName: "computermouse")
-                    Text("鼠标滚轮：方向反转")
-                }
-            }
-            .font(.body)
-            .padding(.vertical, 4)
-        } label: {
-            Text("当前行为")
-        }
-        .padding(.top, 8)
-    }
-
-    // MARK: - 冲突提示
-
-    private var conflictNote: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "info.circle.fill")
-                .font(.caption)
-                .foregroundColor(.secondary)
-            Text("如已用 Mos、Scroll Reverser 等软件，请确保只开一处")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-    }
-
-    // MARK: - 应用规则
-
-    private var appFilterSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("应用单独设置").fontWeight(.medium)
-                Spacer()
-            }
-            .padding(.top, 8)
-
-            if !frontAppName.isEmpty {
-                HStack(spacing: 6) {
-                    Image(systemName: "app.fill")
-                        .foregroundColor(.accentColor)
-                    Text("当前：\(frontAppName)")
-                        .fontWeight(.medium)
-                }
-                .font(.callout)
-                .padding(.vertical, 4)
-            }
-
-            if !settings.perAppScrollRules.isEmpty {
-                ForEach(Array(settings.perAppScrollRules.enumerated()), id: \.element.id) { index, rule in
-                    AppRuleRow(
-                        rule: rule,
-                        onToggle: { settings.perAppScrollRules[index].enabled = $0 },
-                        onBehaviorChange: { settings.perAppScrollRules[index].scrollBehavior = $0 },
-                        onDelete: { settings.perAppScrollRules.remove(at: index) }
-                    )
-                    Divider()
-                }
-            } else {
-                Text("未设置应用单独规则")
-                    .font(.callout)
-                    .foregroundColor(.secondary)
-                    .padding(.vertical, 8)
-            }
-
-            if !frontAppBundleID.isEmpty, !alreadyHasRule(for: frontAppBundleID) {
-                Button(action: addCurrentApp) {
-                    Label("为「\(frontAppName)」添加规则", systemImage: "plus")
-                        .font(.body)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
-                .padding(.top, 4)
-            }
-        }
-    }
-
-    // MARK: - 权限提示
+    // MARK: - 权限警告
 
     private var permissionWarning: some View {
         HStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundColor(.orange)
             VStack(alignment: .leading, spacing: 2) {
-                Text("未授权辅助功能权限")
+                Text("需要辅助功能权限")
                     .fontWeight(.medium)
-                Text("系统设置中关闭再勾选 MKey，然后重启生效")
+                Text("请在系统设置中授权 MKey 以拦截事件")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
             Spacer()
-            Button("打开设置") { openAccessibilitySettings() }
-                .buttonStyle(.bordered).controlSize(.small)
-            Button("刷新") { refreshTrustStatus() }
-                .buttonStyle(.bordered).controlSize(.small)
-            Button("退出并重启") { restartApp() }
-                .buttonStyle(.borderedProminent).controlSize(.small)
+            HStack(spacing: 6) {
+                Button("打开设置") { openAccessibilitySettings() }
+                    .buttonStyle(.bordered).controlSize(.small)
+                Button("刷新") { refreshTrustStatus() }
+                    .buttonStyle(.bordered).controlSize(.small)
+                Button("退出并重启") { restartApp() }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+            }
         }
         .font(.callout)
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.1)))
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+    }
+
+    // MARK: - 空规则提示
+
+    private var emptyRulesView: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "app.dashed")
+                .font(.title2)
+                .foregroundColor(.secondary)
+            Text("还没有为任何应用设置特殊规则")
+                .font(.callout)
+                .foregroundColor(.secondary)
+            Text("切换到目标 App 后，点击上方「添加规则」即可")
+                .font(.caption)
+                .foregroundColor(.secondary.opacity(0.7))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+    }
+
+    // MARK: - 分隔线
+
+    private var thinDivider: some View {
+        Divider().padding(.leading, 16)
+    }
+
+    private var thickDivider: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.06))
+            .frame(height: 8)
     }
 
     // MARK: - 权限轮询
@@ -217,8 +205,6 @@ struct ScrollTab: View {
         trustPollTimer?.invalidate()
         trustPollTimer = nil
     }
-
-    // MARK: - 辅助
 
     private func refreshTrustStatus() { isTrusted = AXIsProcessTrusted() }
 
@@ -248,15 +234,98 @@ struct ScrollTab: View {
         }
     }
 
-    /// 重启：用独立 shell 进程执行 open，确保父进程退出后 shell 仍存活
     private func restartApp() {
         let appPath = Bundle.main.bundlePath
-        let script = "sleep 0.3; open \"\(appPath)\""
         let task = Process()
         task.launchPath = "/bin/sh"
-        task.arguments = ["-c", script]
+        task.arguments = ["-c", "sleep 0.3; open \"\(appPath)\""]
         try? task.run()
         NSApp.terminate(nil)
+    }
+}
+
+// MARK: - 通用组件
+
+/// 区域标题
+struct SectionHeader: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .foregroundColor(.accentColor)
+                    .frame(width: 18)
+                Text(title)
+                    .font(.headline)
+            }
+            Text(subtitle)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.leading, 24)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+}
+
+/// 开关行
+struct ToggleRow: View {
+    let label: String
+    let description: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(.body)
+                Text(description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            Toggle("", isOn: $isOn)
+                .toggleStyle(.switch)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+}
+
+/// 状态指示行
+struct StatusRow: View {
+    let icon: String
+    let label: String
+    let value: String
+    var active: Bool = true
+    var accentColor: Color = .green
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .foregroundColor(.secondary)
+                .frame(width: 20)
+
+            Text(label)
+                .font(.callout)
+                .foregroundColor(active ? .primary : .secondary)
+
+            Spacer()
+
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(active ? accentColor : Color.secondary.opacity(0.3))
+                    .frame(width: 6, height: 6)
+                Text(value)
+                    .font(.callout)
+                    .foregroundColor(active ? .primary : .secondary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 }
 
@@ -291,12 +360,11 @@ struct AppRuleRow: View {
             .frame(width: 80)
 
             Button(action: onDelete) {
-                Image(systemName: "trash")
-                    .foregroundColor(.red)
+                Image(systemName: "trash").foregroundColor(.red)
             }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
+            .buttonStyle(.borderless).controlSize(.small)
         }
-        .padding(.vertical, 4)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
     }
 }

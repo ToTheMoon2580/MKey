@@ -56,7 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let window = NSWindow(contentViewController: hostingController)
             window.title = "MKey 设置"
             window.styleMask = [.titled, .closable, .miniaturizable]
-            window.setContentSize(NSSize(width: 520, height: 540))
+            window.setContentSize(NSSize(width: 540, height: 540))
             window.center()
             settingsWindow = window
             window.isReleasedWhenClosed = false

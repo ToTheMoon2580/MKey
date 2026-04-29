@@ -5,9 +5,10 @@ struct SettingsWindow: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // 顶部标签页
             TabView(selection: $selectedTab) {
                 ScrollTab()
-                    .tabItem { Label("滚动方向", systemImage: "scroll") }
+                    .tabItem { Label("滚动方向", systemImage: "arrow.up.arrow.down") }
                     .tag(0)
 
                 KeyboardTab()
@@ -15,11 +16,9 @@ struct SettingsWindow: View {
                     .tag(1)
             }
 
-            Divider()
-
-            // 底部事件预览条
+            // 底部事件预览（始终展开，更直观）
             EventPreviewBar()
         }
-        .frame(minWidth: 520, minHeight: 520)
+        .frame(minWidth: 540, minHeight: 520)
     }
 }
