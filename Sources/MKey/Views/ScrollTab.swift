@@ -58,7 +58,7 @@ struct ScrollTab: View {
                               title: "应用单独设置",
                               subtitle: "为特定 App 单独设定滚动方向")
 
-                // 当前前台应用 + 添加按钮
+                // 当前前台应用 + 提示 + 添加按钮
                 if !frontAppName.isEmpty {
                     HStack {
                         HStack(spacing: 6) {
@@ -90,6 +90,12 @@ struct ScrollTab: View {
                     .padding(.vertical, 10)
                 }
 
+                Text("也可通过菜单栏 «为当前应用添加滚动规则» 快捷添加")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 4)
+
                 // 规则列表或空状态
                 if settings.perAppScrollRules.isEmpty {
                     emptyRulesView
@@ -110,7 +116,6 @@ struct ScrollTab: View {
                     }
                 }
 
-                // 底部留白
                 Color.clear.frame(height: 24)
             }
         }
@@ -118,13 +123,52 @@ struct ScrollTab: View {
             refreshTrustStatus()
             refreshFrontApp()
             startTrustPollingIfNeeded()
+            startFrontAppObserver()
         }
-        .onDisappear { stopTrustPolling() }
+        .onDisappear {
+            stopTrustPolling()
+            stopFrontAppObserver()
+        }
+        // 当 MKey 自身被激活时也刷新
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshTrustStatus()
             refreshFrontApp()
         }
     }
+
+    // MARK: - 前台 App 实时追踪
+
+    /// 监听全局前台 App 切换：设置窗口浮动置顶时，点其他 App 也会实时更新
+    private func startFrontAppObserver() {
+        stopFrontAppObserver()
+        let observer = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { notification in
+            if let runningApp = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
+                frontAppName = runningApp.localizedName ?? ""
+                frontAppBundleID = runningApp.bundleIdentifier ?? ""
+            }
+        }
+        // 用 UUID 存储引用，绕过 @State 对 non-Sendable 的限制
+        let token = UUID().uuidString
+        _frontAppObserverToken = token
+        Self.activeObservers[token] = observer
+    }
+
+    private func stopFrontAppObserver() {
+        if let token = _frontAppObserverToken {
+            if let observer = Self.activeObservers[token] {
+                NSWorkspace.shared.notificationCenter.removeObserver(observer)
+                Self.activeObservers.removeValue(forKey: token)
+            }
+            _frontAppObserverToken = nil
+        }
+    }
+
+    @State private var _frontAppObserverToken: String?
+    private static var activeObservers: [String: NSObjectProtocol] = [:]
 
     // MARK: - 权限警告
 

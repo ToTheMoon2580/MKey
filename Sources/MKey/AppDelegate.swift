@@ -41,6 +41,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(
+            title: "为当前应用添加滚动规则",
+            action: #selector(quickAddRule),
+            keyEquivalent: ""
+        ))
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(
             title: "退出",
             action: #selector(quitApp),
             keyEquivalent: "q"
@@ -55,15 +61,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             let window = NSWindow(contentViewController: hostingController)
             window.title = "MKey 设置"
-            window.styleMask = [.titled, .closable, .miniaturizable]
+            window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             window.setContentSize(NSSize(width: 540, height: 540))
             window.center()
+            // 浮动置顶：切到其他 App 窗口也不消失
+            window.level = .floating
             settingsWindow = window
             window.isReleasedWhenClosed = false
         }
 
         settingsWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// 菜单栏快捷操作：直接为当前前台 App 添加一条反转滚轮规则
+    @objc private func quickAddRule() {
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              let bundleID = app.bundleIdentifier else { return }
+
+        let settings = AppSettings.shared
+        guard !settings.perAppScrollRules.contains(where: { $0.bundleID == bundleID }) else {
+            showAlert(message: "已存在规则", info: "「\(app.localizedName ?? bundleID)」已有滚动规则，无需重复添加。")
+            return
+        }
+
+        let rule = PerAppScrollRule(
+            bundleID: bundleID,
+            appName: app.localizedName ?? bundleID,
+            scrollBehavior: .reversed
+        )
+        settings.perAppScrollRules.append(rule)
+        showAlert(message: "已添加", info: "已为「\(rule.appName)」添加滚动反转规则。")
+    }
+
+    private func showAlert(message: String, info: String) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.informativeText = info
+        alert.runModal()
     }
 
     @objc private func quitApp() {
