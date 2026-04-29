@@ -7,35 +7,49 @@ struct ScrollTab: View {
     @State private var frontAppName: String = ""
     @State private var frontAppBundleID: String = ""
 
+    /// 权限轮询定时器
+    @State private var trustPollTimer: Timer?
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // 权限状态提示
-            if !isTrusted {
-                permissionWarning
-                    .padding(.horizontal)
-                    .padding(.top, 8)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                // 权限警告
+                if !isTrusted {
+                    permissionWarning
+                        .padding(.horizontal, 12)
+                        .padding(.top, 8)
+                }
+
+                // 全局开关
+                globalSection
+                    .padding(.horizontal, 12)
+                    .padding(.top, 12)
+
+                Divider().padding(.horizontal, 12)
+
+                // 行为说明
+                behaviorSection
+                    .padding(.horizontal, 12)
+
+                // 冲突提示
+                conflictNote
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+
+                Divider().padding(.horizontal, 12)
+
+                // 应用规则
+                appFilterSection
+                    .padding(.horizontal, 12)
             }
-
-            // 全局开关 + 开机自启
-            globalSection
-                .padding(.horizontal)
-
-            Divider().padding(.horizontal)
-
-            // 行为说明
-            behaviorSection
-                .padding(.horizontal)
-
-            Divider().padding(.horizontal)
-
-            // 应用过滤
-            appFilterSection
-
-            Spacer(minLength: 0)
         }
         .onAppear {
             refreshTrustStatus()
             refreshFrontApp()
+            startTrustPollingIfNeeded()
+        }
+        .onDisappear {
+            stopTrustPolling()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshTrustStatus()
@@ -43,43 +57,29 @@ struct ScrollTab: View {
         }
     }
 
-    // MARK: - 全局开关 + 开机自启
+    // MARK: - 全局开关
 
     private var globalSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // 标题
-            VStack(alignment: .leading, spacing: 2) {
-                Text("触控板 / 鼠标滚动方向独立控制")
-                    .font(.headline)
-                Text("触控板保持自然滚动，鼠标滚轮方向反转")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .padding(.top, 8)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("触控板 / 鼠标滚动方向独立控制")
+                .font(.headline)
+            Text("触控板保持自然滚动，鼠标滚轮方向反转")
+                .font(.body)
+                .foregroundColor(.secondary)
+                .padding(.bottom, 4)
 
-            // 全局开关
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("启用滚动方向独立控制")
-                        .font(.body)
-                    Text(statusText)
-                        .font(.caption)
-                        .foregroundColor(statusColor)
-                }
+                Text("启用滚动方向独立控制")
+                    .font(.body)
                 Spacer()
                 Toggle("", isOn: $settings.scrollReverseEnabled)
                     .toggleStyle(.switch)
+                    .disabled(!isTrusted)
             }
 
-            // 开机自启
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("开机自动启动")
-                        .font(.body)
-                    Text(settings.launchAtLogin ? "登录时自动运行" : "需手动启动")
-                        .font(.caption)
-                        .foregroundColor(settings.launchAtLogin ? .green : .secondary)
-                }
+                Text("开机自动启动")
+                    .font(.body)
                 Spacer()
                 Toggle("", isOn: $settings.launchAtLogin)
                     .toggleStyle(.switch)
@@ -95,157 +95,132 @@ struct ScrollTab: View {
                 HStack(spacing: 8) {
                     Image(systemName: "trackpad")
                     Text("触控板：保持自然滚动")
-                        .font(.callout)
                 }
                 HStack(spacing: 8) {
                     Image(systemName: "computermouse")
-                    Text("鼠标滚轮：方向反转 ↑→↓")
-                        .font(.callout)
+                    Text("鼠标滚轮：方向反转")
                 }
             }
+            .font(.body)
             .padding(.vertical, 4)
         } label: {
             Text("当前行为")
         }
-        .padding(.top, 4)
+        .padding(.top, 8)
     }
 
-    // MARK: - 应用过滤
+    // MARK: - 冲突提示
+
+    private var conflictNote: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "info.circle.fill")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Text("如已用 Mos、Scroll Reverser 等软件，请确保只开一处")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+    }
+
+    // MARK: - 应用规则
 
     private var appFilterSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("应用单独设置")
-                    .font(.callout)
-                    .fontWeight(.medium)
+                Text("应用单独设置").fontWeight(.medium)
                 Spacer()
             }
-            .padding(.horizontal)
-            .padding(.vertical, 6)
+            .padding(.top, 8)
 
-            // 当前前台应用
             if !frontAppName.isEmpty {
-                currentAppBar
-                    .padding(.horizontal)
-                    .padding(.bottom, 4)
+                HStack(spacing: 6) {
+                    Image(systemName: "app.fill")
+                        .foregroundColor(.accentColor)
+                    Text("当前：\(frontAppName)")
+                        .fontWeight(.medium)
+                }
+                .font(.callout)
+                .padding(.vertical, 4)
             }
 
-            // 规则列表
-            if settings.perAppScrollRules.isEmpty {
-                emptyRulesHint
+            if !settings.perAppScrollRules.isEmpty {
+                ForEach(Array(settings.perAppScrollRules.enumerated()), id: \.element.id) { index, rule in
+                    AppRuleRow(
+                        rule: rule,
+                        onToggle: { settings.perAppScrollRules[index].enabled = $0 },
+                        onBehaviorChange: { settings.perAppScrollRules[index].scrollBehavior = $0 },
+                        onDelete: { settings.perAppScrollRules.remove(at: index) }
+                    )
+                    Divider()
+                }
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(settings.perAppScrollRules.enumerated()), id: \.element.id) { index, rule in
-                            AppRuleRow(
-                                rule: rule,
-                                onToggle: { enabled in
-                                    settings.perAppScrollRules[index].enabled = enabled
-                                },
-                                onBehaviorChange: { behavior in
-                                    settings.perAppScrollRules[index].scrollBehavior = behavior
-                                },
-                                onDelete: {
-                                    settings.perAppScrollRules.remove(at: index)
-                                }
-                            )
-                            if rule.id != settings.perAppScrollRules.last?.id {
-                                Divider().padding(.leading, 42)
-                            }
-                        }
-                    }
-                }
-                .frame(maxHeight: 160)
+                Text("未设置应用单独规则")
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 8)
             }
 
-            // 添加当前 App 按钮
-            if !frontAppBundleID.isEmpty && !alreadyHasRule(for: frontAppBundleID) {
+            if !frontAppBundleID.isEmpty, !alreadyHasRule(for: frontAppBundleID) {
                 Button(action: addCurrentApp) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "plus.circle")
-                        Text("为「\(frontAppName)」添加规则")
-                    }
+                    Label("为「\(frontAppName)」添加规则", systemImage: "plus")
+                        .font(.body)
                 }
-                .buttonStyle(.borderless)
-                .padding(.horizontal)
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
                 .padding(.top, 4)
             }
         }
     }
 
-    private var currentAppBar: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "app.fill")
-                .font(.caption)
-                .foregroundColor(.accentColor)
-            Text("当前前台应用: ")
-                .font(.caption)
-                .foregroundColor(.secondary)
-            Text(frontAppName)
-                .font(.caption)
-                .fontWeight(.medium)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.accentColor.opacity(0.08))
-        )
-    }
-
-    private var emptyRulesHint: some View {
-        VStack(spacing: 4) {
-            Image(systemName: "app.dashed")
-                .font(.title2)
-                .foregroundColor(.secondary)
-            Text("未设置应用单独规则")
-                .font(.callout)
-                .foregroundColor(.secondary)
-            Text("切换到目标应用后，点击上方按钮添加")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 16)
-    }
-
     // MARK: - 权限提示
 
     private var permissionWarning: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundColor(.orange)
             VStack(alignment: .leading, spacing: 2) {
                 Text("未授权辅助功能权限")
-                    .font(.callout).fontWeight(.medium)
-                Text("MKey 需要此权限才能拦截鼠标事件")
-                    .font(.caption).foregroundColor(.secondary)
+                    .fontWeight(.medium)
+                Text("系统设置中关闭再勾选 MKey，然后重启生效")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
             Spacer()
-            Button("打开系统设置") { openAccessibilitySettings() }
+            Button("打开设置") { openAccessibilitySettings() }
+                .buttonStyle(.bordered).controlSize(.small)
+            Button("刷新") { refreshTrustStatus() }
+                .buttonStyle(.bordered).controlSize(.small)
+            Button("退出并重启") { restartApp() }
                 .buttonStyle(.borderedProminent).controlSize(.small)
         }
-        .padding()
+        .font(.callout)
+        .padding(10)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.1)))
     }
 
-    // MARK: - 状态文案
+    // MARK: - 权限轮询
 
-    private var statusText: String {
-        if !isTrusted { return "缺少权限，无法生效" }
-        return settings.scrollReverseEnabled ? "鼠标滚轮方向已反转" : "已关闭"
+    private func startTrustPollingIfNeeded() {
+        guard !isTrusted else { return }
+        stopTrustPolling()
+        trustPollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
+            DispatchQueue.main.async {
+                if AXIsProcessTrusted() {
+                    isTrusted = true
+                    stopTrustPolling()
+                }
+            }
+        }
     }
 
-    private var statusColor: Color {
-        if !isTrusted { return .orange }
-        return settings.scrollReverseEnabled ? .green : .secondary
+    private func stopTrustPolling() {
+        trustPollTimer?.invalidate()
+        trustPollTimer = nil
     }
 
-    // MARK: - 辅助方法
+    // MARK: - 辅助
 
-    private func refreshTrustStatus() {
-        isTrusted = AXIsProcessTrusted()
-    }
+    private func refreshTrustStatus() { isTrusted = AXIsProcessTrusted() }
 
     private func refreshFrontApp() {
         if let app = NSWorkspace.shared.frontmostApplication {
@@ -254,24 +229,34 @@ struct ScrollTab: View {
         }
     }
 
-    private func alreadyHasRule(for bundleID: String) -> Bool {
-        settings.perAppScrollRules.contains { $0.bundleID == bundleID }
+    private func alreadyHasRule(for id: String) -> Bool {
+        settings.perAppScrollRules.contains { $0.bundleID == id }
     }
 
     private func addCurrentApp() {
-        guard !frontAppBundleID.isEmpty, !alreadyHasRule(for: frontAppBundleID) else { return }
-        let rule = PerAppScrollRule(
+        guard !frontAppBundleID.isEmpty else { return }
+        settings.perAppScrollRules.append(PerAppScrollRule(
             bundleID: frontAppBundleID,
             appName: frontAppName,
             scrollBehavior: .reversed
-        )
-        settings.perAppScrollRules.append(rule)
+        ))
     }
 
     private func openAccessibilitySettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    /// 重启：用独立 shell 进程执行 open，确保父进程退出后 shell 仍存活
+    private func restartApp() {
+        let appPath = Bundle.main.bundlePath
+        let script = "sleep 0.3; open \"\(appPath)\""
+        let task = Process()
+        task.launchPath = "/bin/sh"
+        task.arguments = ["-c", script]
+        try? task.run()
+        NSApp.terminate(nil)
     }
 }
 
@@ -287,26 +272,19 @@ struct AppRuleRow: View {
         HStack(spacing: 8) {
             Toggle("", isOn: Binding(get: { rule.enabled }, set: onToggle))
                 .toggleStyle(.switch)
-                .scaleEffect(0.7)
-                .frame(width: 32)
-
-            Image(systemName: "app.fill")
-                .font(.caption)
-                .foregroundColor(.accentColor)
+                .scaleEffect(0.75)
+                .frame(width: 34)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(rule.appName)
-                    .font(.callout)
-                Text(rule.bundleID)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+                Text(rule.appName).font(.callout)
+                Text(rule.bundleID).font(.caption).foregroundColor(.secondary)
             }
 
             Spacer()
 
             Picker("", selection: Binding(get: { rule.scrollBehavior }, set: onBehaviorChange)) {
-                ForEach(PerAppScrollRule.ScrollBehavior.allCases, id: \.self) { behavior in
-                    Text(behavior.displayName).tag(behavior)
+                ForEach(PerAppScrollRule.ScrollBehavior.allCases, id: \.self) { b in
+                    Text(b.displayName).tag(b)
                 }
             }
             .labelsHidden()
@@ -314,12 +292,11 @@ struct AppRuleRow: View {
 
             Button(action: onDelete) {
                 Image(systemName: "trash")
-                    .font(.caption)
                     .foregroundColor(.red)
             }
             .buttonStyle(.borderless)
+            .controlSize(.small)
         }
-        .padding(.horizontal)
-        .padding(.vertical, 6)
+        .padding(.vertical, 4)
     }
 }

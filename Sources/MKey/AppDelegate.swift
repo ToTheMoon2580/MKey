@@ -56,10 +56,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let window = NSWindow(contentViewController: hostingController)
             window.title = "MKey 设置"
             window.styleMask = [.titled, .closable, .miniaturizable]
-            window.setContentSize(NSSize(width: 560, height: 580))
+            window.setContentSize(NSSize(width: 520, height: 540))
             window.center()
             settingsWindow = window
-            // 窗口关闭时不销毁，保留引用以复用（AppSettings 为单例，状态总是最新）
             window.isReleasedWhenClosed = false
         }
 
@@ -78,7 +77,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if permissionChecker.isTrusted {
             startInterceptor()
         } else {
-            // 延迟弹窗，避免启动瞬间抢占焦点
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 guard let self else { return }
                 if !self.permissionChecker.isTrusted {
@@ -123,7 +121,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         permissionPollTimer = nil
     }
 
-    /// 供 UI 层触发：用户手动授权后重试启动
     func retryStartIfNeeded() {
         guard permissionChecker.isTrusted, !isInterceptorRunning else { return }
         startInterceptor()

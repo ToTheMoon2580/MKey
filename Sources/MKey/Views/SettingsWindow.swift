@@ -7,22 +7,19 @@ struct SettingsWindow: View {
         VStack(spacing: 0) {
             TabView(selection: $selectedTab) {
                 ScrollTab()
-                    .tabItem {
-                        Label("滚动方向", systemImage: "scroll")
-                    }
+                    .tabItem { Label("滚动方向", systemImage: "scroll") }
                     .tag(0)
 
                 KeyboardTab()
-                    .tabItem {
-                        Label("键盘映射", systemImage: "keyboard")
-                    }
+                    .tabItem { Label("键盘映射", systemImage: "keyboard") }
                     .tag(1)
             }
-            .padding()
 
-            // 底部事件实时预览条
+            Divider()
+
+            // 底部事件预览条
             EventPreviewBar()
         }
-        .frame(minWidth: 540, minHeight: 560)
+        .frame(minWidth: 520, minHeight: 520)
     }
 }
