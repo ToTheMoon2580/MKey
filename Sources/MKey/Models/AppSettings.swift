@@ -5,12 +5,18 @@ final class AppSettings: ObservableObject {
 
     static let shared = AppSettings()
 
-    // MARK: - 滚动方向
+    // MARK: - 滚动方向（触控板 / 鼠标各自独立）
 
-    @Published var scrollReverseEnabled: Bool {
-        didSet {
-            UserDefaults.standard.set(scrollReverseEnabled, forKey: .scrollReverseEnabled)
-        }
+    @Published var trackpadScrollBehavior: PerAppScrollRule.ScrollBehavior {
+        didSet { saveScrollBehavior(.trackpadScrollBehavior, value: trackpadScrollBehavior.rawValue) }
+    }
+
+    @Published var mouseScrollBehavior: PerAppScrollRule.ScrollBehavior {
+        didSet { saveScrollBehavior(.mouseScrollBehavior, value: mouseScrollBehavior.rawValue) }
+    }
+
+    private func saveScrollBehavior(_ key: String, value: String) {
+        UserDefaults.standard.set(value, forKey: key)
     }
 
     // MARK: - 键盘映射
@@ -53,8 +59,12 @@ final class AppSettings: ObservableObject {
     private init() {
         let defaults = UserDefaults.standard
 
-        self.scrollReverseEnabled = defaults.bool(forKey: .scrollReverseEnabled)
+        // 读取滚动行为（含旧版迁移）
+        let behaviors = Self.loadScrollBehaviors(from: defaults)
+        self.trackpadScrollBehavior = behaviors.trackpad
+        self.mouseScrollBehavior = behaviors.mouse
 
+        // 键盘映射
         if let data = defaults.data(forKey: .keyMappings),
            let mappings = try? JSONDecoder().decode([KeyMappingRule].self, from: data) {
             self.keyMappings = mappings
@@ -77,12 +87,37 @@ final class AppSettings: ObservableObject {
             self.eventPreviewExpanded = true
         }
     }
+
+    /// 读取触控板/鼠标行为，含旧版单 bool 自动迁移
+    private static func loadScrollBehaviors(from defaults: UserDefaults) -> (trackpad: PerAppScrollRule.ScrollBehavior, mouse: PerAppScrollRule.ScrollBehavior) {
+        // 新版数据
+        if let rawT = defaults.string(forKey: .trackpadScrollBehavior),
+           let rawM = defaults.string(forKey: .mouseScrollBehavior),
+           let t = PerAppScrollRule.ScrollBehavior(rawValue: rawT),
+           let m = PerAppScrollRule.ScrollBehavior(rawValue: rawM) {
+            return (t, m)
+        }
+
+        // 旧版迁移
+        let wasEnabled = defaults.bool(forKey: .scrollReverseEnabled)
+        let trackpad: PerAppScrollRule.ScrollBehavior = wasEnabled ? .natural : .systemDefault
+        let mouse: PerAppScrollRule.ScrollBehavior    = wasEnabled ? .reversed : .systemDefault
+
+        // 写入新版 key，清理旧版
+        defaults.set(trackpad.rawValue, forKey: .trackpadScrollBehavior)
+        defaults.set(mouse.rawValue, forKey: .mouseScrollBehavior)
+        defaults.removeObject(forKey: .scrollReverseEnabled)
+
+        return (trackpad, mouse)
+    }
 }
 
 // MARK: - UserDefaults Keys
 
 fileprivate extension String {
     static let scrollReverseEnabled = "scrollReverseEnabled"
+    static let trackpadScrollBehavior = "trackpadScrollBehavior"
+    static let mouseScrollBehavior = "mouseScrollBehavior"
     static let keyMappings = "keyMappings"
     static let launchAtLogin = "launchAtLogin"
     static let perAppScrollRules = "perAppScrollRules"

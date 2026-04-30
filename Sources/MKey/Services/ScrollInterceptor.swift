@@ -1,8 +1,8 @@
 import Cocoa
 import CoreGraphics
 
-/// 滚动事件拦截器：监听 CGEvent 滚动事件，区分触控板/鼠标，对鼠标滚轮反转 deltaY。
-/// 支持按应用单独设置滚动方向（PerAppScrollRule）。
+/// 滚动事件拦截器：区分触控板/鼠标，各自独立控制方向。
+/// 支持按应用单独设置（PerAppScrollRule）。
 final class ScrollInterceptor {
 
     private var eventTap: CFMachPort?
@@ -49,23 +49,26 @@ final class ScrollInterceptor {
             return Unmanaged.passUnretained(event)
         }
 
-        // 触控板事件带 kCGEventFlagMaskNonCoalesced / NSEventSubtypeTouch 特征
-        // 鼠标滚轮事件 flag 不含 subtype 标志，且 scrollCount 通常为 1
         let isTrackpad = event.getIntegerValueField(.scrollWheelEventIsContinuous) == 1
             || event.getIntegerValueField(.scrollWheelEventMomentumPhase) != 0
 
-        // 推送到事件预览面板（反转前推送原始方向）
+        // 推送到事件预览面板
         let deltaY = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)
         EventBroadcaster.shared.pushScroll(isTrackpad: isTrackpad, deltaY: deltaY)
 
         // 确定是否需要反转
         let shouldReverse: Bool
-        if !isTrackpad, let appRule = perAppRule(), appRule.enabled {
+        if let appRule = perAppRule(), appRule.enabled {
             // 应用级规则覆盖
             shouldReverse = (appRule.scrollBehavior == .reversed)
         } else {
-            // 全局设置（触控板永不反转）
-            shouldReverse = AppSettings.shared.scrollReverseEnabled && !isTrackpad
+            // 全局独立设置
+            let settings = AppSettings.shared
+            if isTrackpad {
+                shouldReverse = (settings.trackpadScrollBehavior == .reversed)
+            } else {
+                shouldReverse = (settings.mouseScrollBehavior == .reversed)
+            }
         }
 
         if shouldReverse {

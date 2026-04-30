@@ -4,9 +4,8 @@ import Cocoa
 struct ScrollTab: View {
     @StateObject private var settings = AppSettings.shared
     @State private var isTrusted = AXIsProcessTrusted()
-    @State private var frontAppName: String = ""
-    @State private var frontAppBundleID: String = ""
     @State private var trustPollTimer: Timer?
+    @State private var showAppPicker = false
 
     var body: some View {
         ScrollView {
@@ -17,13 +16,26 @@ struct ScrollTab: View {
                 // 区域一：全局控制
                 SectionHeader(icon: "arrow.up.arrow.down",
                               title: "滚动方向",
-                              subtitle: "分别控制触控板和鼠标的滚动方向")
+                              subtitle: "触控板和鼠标各自独立设置，互不影响")
                     .padding(.top, isTrusted ? 16 : 8)
 
-                ToggleRow(label: "启用独立控制",
-                          description: "开启后触控板与鼠标各管各的",
-                          isOn: $settings.scrollReverseEnabled)
-                    .disabled(!isTrusted)
+                // 触控板
+                BehaviorRow(
+                    icon: "hand.point.up.fill",
+                    label: "触控板",
+                    behavior: $settings.trackpadScrollBehavior,
+                    disabled: !isTrusted
+                )
+
+                thinDivider
+
+                // 鼠标
+                BehaviorRow(
+                    icon: "computermouse.fill",
+                    label: "鼠标滚轮",
+                    behavior: $settings.mouseScrollBehavior,
+                    disabled: !isTrusted
+                )
 
                 thinDivider
 
@@ -36,20 +48,21 @@ struct ScrollTab: View {
                 // 区域二：当前效果
                 SectionHeader(icon: "eye",
                               title: "当前效果",
-                              subtitle: "开启后触控板保持原生，鼠标滚轮反转")
+                              subtitle: currentEffectSubtitle)
 
                 StatusRow(icon: "hand.point.up.fill",
                           label: "触控板",
-                          value: settings.scrollReverseEnabled ? "自然滚动（原生）" : "跟随系统",
-                          active: settings.scrollReverseEnabled)
+                          value: settings.trackpadScrollBehavior.displayName,
+                          active: settings.trackpadScrollBehavior != .systemDefault,
+                          accentColor: settings.trackpadScrollBehavior == .reversed ? .orange : .green)
 
                 thinDivider
 
                 StatusRow(icon: "computermouse.fill",
                           label: "鼠标滚轮",
-                          value: settings.scrollReverseEnabled ? "方向反转 ↑→↓" : "跟随系统",
-                          active: settings.scrollReverseEnabled,
-                          accentColor: .orange)
+                          value: settings.mouseScrollBehavior.displayName,
+                          active: settings.mouseScrollBehavior != .systemDefault,
+                          accentColor: settings.mouseScrollBehavior == .reversed ? .orange : .green)
 
                 thickDivider
 
@@ -58,117 +71,73 @@ struct ScrollTab: View {
                               title: "应用单独设置",
                               subtitle: "为特定 App 单独设定滚动方向")
 
-                // 当前前台应用 + 提示 + 添加按钮
-                if !frontAppName.isEmpty {
-                    HStack {
-                        HStack(spacing: 6) {
-                            Image(systemName: "app.fill")
-                                .foregroundColor(.accentColor)
-                            Text(frontAppName)
-                                .fontWeight(.medium)
-                            Text("· 当前前台")
-                                .foregroundColor(.secondary)
-                        }
-                        .font(.callout)
-
-                        Spacer()
-
-                        if alreadyHasRule(for: frontAppBundleID) {
-                            Label("已添加", systemImage: "checkmark.circle.fill")
-                                .font(.callout)
-                                .foregroundColor(.green)
-                        } else {
-                            Button(action: addCurrentApp) {
-                                Label("添加规则", systemImage: "plus")
-                                    .font(.callout)
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                }
-
-                Text("也可通过菜单栏 «为当前应用添加滚动规则» 快捷添加")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 4)
-
-                // 规则列表或空状态
                 if settings.perAppScrollRules.isEmpty {
                     emptyRulesView
                 } else {
-                    VStack(spacing: 0) {
-                        thinDivider
-                        ForEach(Array(settings.perAppScrollRules.enumerated()), id: \.element.id) { index, rule in
-                            AppRuleRow(
-                                rule: rule,
-                                onToggle: { settings.perAppScrollRules[index].enabled = $0 },
-                                onBehaviorChange: { settings.perAppScrollRules[index].scrollBehavior = $0 },
-                                onDelete: { settings.perAppScrollRules.remove(at: index) }
-                            )
-                            if index < settings.perAppScrollRules.count - 1 {
-                                thinDivider
-                            }
+                    ForEach(Array(settings.perAppScrollRules.enumerated()), id: \.element.id) { index, rule in
+                        AppRuleRow(
+                            rule: rule,
+                            onToggle: { settings.perAppScrollRules[index].enabled = $0 },
+                            onBehaviorChange: { settings.perAppScrollRules[index].scrollBehavior = $0 },
+                            onDelete: { settings.perAppScrollRules.remove(at: index) }
+                        )
+                        if index < settings.perAppScrollRules.count - 1 {
+                            thinDivider
                         }
                     }
                 }
+
+                HStack {
+                    Button(action: { showAppPicker = true }) {
+                        Label("添加应用", systemImage: "plus")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 6)
+                    Spacer()
+                }
+
+                Text("也可通过菜单栏 ⌨ →「为当前应用添加滚动规则」快捷添加")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 16)
 
                 Color.clear.frame(height: 24)
             }
         }
         .onAppear {
             refreshTrustStatus()
-            refreshFrontApp()
             startTrustPollingIfNeeded()
-            startFrontAppObserver()
         }
-        .onDisappear {
-            stopTrustPolling()
-            stopFrontAppObserver()
-        }
-        // 当 MKey 自身被激活时也刷新
+        .onDisappear { stopTrustPolling() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshTrustStatus()
-            refreshFrontApp()
         }
-    }
-
-    // MARK: - 前台 App 实时追踪
-
-    /// 监听全局前台 App 切换：设置窗口浮动置顶时，点其他 App 也会实时更新
-    private func startFrontAppObserver() {
-        stopFrontAppObserver()
-        let observer = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification,
-            object: nil,
-            queue: .main
-        ) { notification in
-            if let runningApp = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
-                frontAppName = runningApp.localizedName ?? ""
-                frontAppBundleID = runningApp.bundleIdentifier ?? ""
+        .sheet(isPresented: $showAppPicker) {
+            AppPickerSheet(isPresented: $showAppPicker) { bundleID, name in
+                guard !settings.perAppScrollRules.contains(where: { $0.bundleID == bundleID }) else { return }
+                settings.perAppScrollRules.append(PerAppScrollRule(
+                    bundleID: bundleID,
+                    appName: name,
+                    scrollBehavior: .reversed
+                ))
             }
         }
-        // 用 UUID 存储引用，绕过 @State 对 non-Sendable 的限制
-        let token = UUID().uuidString
-        _frontAppObserverToken = token
-        Self.activeObservers[token] = observer
     }
 
-    private func stopFrontAppObserver() {
-        if let token = _frontAppObserverToken {
-            if let observer = Self.activeObservers[token] {
-                NSWorkspace.shared.notificationCenter.removeObserver(observer)
-                Self.activeObservers.removeValue(forKey: token)
-            }
-            _frontAppObserverToken = nil
+    private var currentEffectSubtitle: String {
+        let t = settings.trackpadScrollBehavior
+        let m = settings.mouseScrollBehavior
+        if t == .systemDefault && m == .systemDefault {
+            return "触控板和鼠标均跟随系统设置"
         }
+        var parts: [String] = []
+        if t != .systemDefault { parts.append("触控板：\(t.displayName)") }
+        if m != .systemDefault { parts.append("鼠标：\(m.displayName)") }
+        return parts.joined(separator: "，")
     }
-
-    @State private var _frontAppObserverToken: String?
-    private static var activeObservers: [String: NSObjectProtocol] = [:]
 
     // MARK: - 权限警告
 
@@ -210,12 +179,12 @@ struct ScrollTab: View {
             Text("还没有为任何应用设置特殊规则")
                 .font(.callout)
                 .foregroundColor(.secondary)
-            Text("切换到目标 App 后，点击上方「添加规则」即可")
+            Text("点击下方按钮，从已安装应用中选择")
                 .font(.caption)
                 .foregroundColor(.secondary.opacity(0.7))
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
+        .padding(.vertical, 20)
     }
 
     // MARK: - 分隔线
@@ -251,26 +220,6 @@ struct ScrollTab: View {
     }
 
     private func refreshTrustStatus() { isTrusted = AXIsProcessTrusted() }
-
-    private func refreshFrontApp() {
-        if let app = NSWorkspace.shared.frontmostApplication {
-            frontAppName = app.localizedName ?? ""
-            frontAppBundleID = app.bundleIdentifier ?? ""
-        }
-    }
-
-    private func alreadyHasRule(for id: String) -> Bool {
-        settings.perAppScrollRules.contains { $0.bundleID == id }
-    }
-
-    private func addCurrentApp() {
-        guard !frontAppBundleID.isEmpty else { return }
-        settings.perAppScrollRules.append(PerAppScrollRule(
-            bundleID: frontAppBundleID,
-            appName: frontAppName,
-            scrollBehavior: .reversed
-        ))
-    }
 
     private func openAccessibilitySettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
@@ -339,6 +288,38 @@ struct ToggleRow: View {
     }
 }
 
+/// 设备行为选择行
+struct BehaviorRow: View {
+    let icon: String
+    let label: String
+    @Binding var behavior: PerAppScrollRule.ScrollBehavior
+    var disabled: Bool = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .foregroundColor(.secondary)
+                .frame(width: 20)
+
+            Text(label)
+                .font(.callout)
+
+            Spacer()
+
+            Picker("", selection: $behavior) {
+                Text("自然滚动").tag(PerAppScrollRule.ScrollBehavior.natural)
+                Text("反转滚动").tag(PerAppScrollRule.ScrollBehavior.reversed)
+                Text("跟随系统").tag(PerAppScrollRule.ScrollBehavior.systemDefault)
+            }
+            .labelsHidden()
+            .frame(width: 100)
+            .disabled(disabled)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+}
+
 /// 状态指示行
 struct StatusRow: View {
     let icon: String
@@ -355,7 +336,7 @@ struct StatusRow: View {
 
             Text(label)
                 .font(.callout)
-                .foregroundColor(active ? .primary : .secondary)
+                .foregroundColor(.primary)
 
             Spacer()
 
@@ -365,7 +346,7 @@ struct StatusRow: View {
                     .frame(width: 6, height: 6)
                 Text(value)
                     .font(.callout)
-                    .foregroundColor(active ? .primary : .secondary)
+                    .foregroundColor(.primary)
             }
         }
         .padding(.horizontal, 16)
@@ -380,6 +361,11 @@ struct AppRuleRow: View {
     let onToggle: (Bool) -> Void
     let onBehaviorChange: (PerAppScrollRule.ScrollBehavior) -> Void
     let onDelete: () -> Void
+
+    /// 应用规则只允许 自然/反转，不显示「跟随系统」
+    private var appBehaviors: [PerAppScrollRule.ScrollBehavior] {
+        [.natural, .reversed]
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -396,7 +382,7 @@ struct AppRuleRow: View {
             Spacer()
 
             Picker("", selection: Binding(get: { rule.scrollBehavior }, set: onBehaviorChange)) {
-                ForEach(PerAppScrollRule.ScrollBehavior.allCases, id: \.self) { b in
+                ForEach(appBehaviors, id: \.self) { b in
                     Text(b.displayName).tag(b)
                 }
             }

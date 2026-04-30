@@ -11,13 +11,16 @@ struct PerAppScrollRule: Codable, Identifiable, Equatable {
     enum ScrollBehavior: String, Codable, CaseIterable {
         /// 自然滚动（触控板风格：手指上推 = 页面上滚）
         case natural
-        /// 反转滚动（鼠标风格：滚轮上滚 = 页面上滚，即反转系统方向）
+        /// 反转滚动（鼠标风格：滚轮上滚 = 页面上滚）
         case reversed
+        /// 跟随系统设置（不拦截，仅全局设置可用）
+        case systemDefault
 
         var displayName: String {
             switch self {
-            case .natural: return "自然滚动"
-            case .reversed: return "反转滚动"
+            case .natural:       return "自然滚动"
+            case .reversed:      return "反转滚动"
+            case .systemDefault: return "跟随系统"
             }
         }
     }
