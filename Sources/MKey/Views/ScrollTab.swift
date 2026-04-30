@@ -44,29 +44,8 @@ struct ScrollTab: View {
                           isOn: $settings.launchAtLogin)
 
                 thickDivider
-
-                // 区域二：当前效果
-                SectionHeader(icon: "eye",
-                              title: "当前效果",
-                              subtitle: currentEffectSubtitle)
-
-                StatusRow(icon: "hand.point.up.fill",
-                          label: "触控板",
-                          value: settings.trackpadScrollBehavior.displayName,
-                          active: settings.trackpadScrollBehavior != .systemDefault,
-                          accentColor: settings.trackpadScrollBehavior == .reversed ? .orange : .green)
-
-                thinDivider
-
-                StatusRow(icon: "computermouse.fill",
-                          label: "鼠标滚轮",
-                          value: settings.mouseScrollBehavior.displayName,
-                          active: settings.mouseScrollBehavior != .systemDefault,
-                          accentColor: settings.mouseScrollBehavior == .reversed ? .orange : .green)
-
-                thickDivider
-
-                // 区域三：应用单独设置
+                
+                // 区域二：应用单独设置
                 SectionHeader(icon: "apps.iphone",
                               title: "应用单独设置",
                               subtitle: "为特定 App 单独设定滚动方向")
@@ -125,18 +104,6 @@ struct ScrollTab: View {
                 ))
             }
         }
-    }
-
-    private var currentEffectSubtitle: String {
-        let t = settings.trackpadScrollBehavior
-        let m = settings.mouseScrollBehavior
-        if t == .systemDefault && m == .systemDefault {
-            return "触控板和鼠标均跟随系统设置"
-        }
-        var parts: [String] = []
-        if t != .systemDefault { parts.append("触控板：\(t.displayName)") }
-        if m != .systemDefault { parts.append("鼠标：\(m.displayName)") }
-        return parts.joined(separator: "，")
     }
 
     // MARK: - 权限警告
